@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .brain import Brain
 from .bus import ActionBus
 from .journal import Journal
 from .paths import PathGuard, default_safe_zone, load_extra_never_touch
@@ -51,6 +52,7 @@ class Runtime:
     policy: PolicyEngine
     journal: Journal
     bus: ActionBus
+    brain: Brain
     attached: tuple[str, ...]
     notes: tuple[str, ...]      # things Reddie should know — degrade loudly
 
@@ -117,4 +119,16 @@ def build(*, on_event=None) -> Runtime:
     if not ok:
         notes.append(f"apps surface is attached but inert: {why}")
 
-    return Runtime(guard, policy, journal, bus, tuple(attached), tuple(notes))
+    brain = Brain()
+    if not brain.api_key:
+        notes.append(
+            "no GEMINI_API_KEY — the planner is unavailable. Fixed command shapes "
+            "still work and everything else gets an honest refusal."
+        )
+    elif not brain.ollama_model:
+        notes.append(
+            "no OLLAMA_MODEL set — if Gemini is unreachable there is no local "
+            "fallback, only the fixed command shapes."
+        )
+
+    return Runtime(guard, policy, journal, bus, brain, tuple(attached), tuple(notes))

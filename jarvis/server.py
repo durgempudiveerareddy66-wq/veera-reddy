@@ -72,6 +72,7 @@ class Hub:
 HUB = Hub()
 RT = None                       # the Runtime, built in main()
 PENDING: dict[str, dict] = {}   # actions waiting on confirmation
+PENDING_PLAN: list = []         # the rest of a multi-step plan, shown up front
 
 
 def _expire_pending() -> None:
@@ -97,15 +98,15 @@ def health() -> dict:
     import os
     g = RT.guard
     stats = RT.journal.stats()
-    brain = "none"
-    if os.environ.get("GEMINI_API_KEY"):
-        brain = f"gemini:{os.environ.get('GEMINI_MODEL', 'unset')}"
+    bs = RT.brain.status()
+    brain = f"gemini:{bs['model']}" if bs["gemini_key"] else (
+        f"ollama:{bs['ollama_model']}" if bs["ollama_model"] else "none")
     apps_ok, apps_why = _apps_status()
+    v_ok, v_why = _voice_status()
+    _v_label = "READY" if v_ok else v_why[:46]
     return {
         "brain": brain,
-        "stt": "not built (step 4)",
-        "tts": "not built (step 4)",
-        "wake": "not built (step 4)",
+        "stt": _v_label, "tts": _v_label, "wake": _v_label,
         "dry_run": RT.policy.config.dry_run,
         "yolo": RT.policy.config.yolo,
         "safe_zone": str(g.safe_zone),
@@ -117,6 +118,9 @@ def health() -> dict:
         "verbs": len(registry.all_verbs()),
         "attached_verbs": sum(1 for s in registry.all_verbs().values() if s.attached),
         "journal": stats,
+        "brain_calls": bs["calls"],
+        "brain_tokens": bs["in_tokens"] + bs["out_tokens"],
+        "brain_error": bs["last_error"],
         "notes": list(RT.notes),
         "state": HUB.state,
     }
@@ -125,6 +129,11 @@ def health() -> dict:
 def _apps_status() -> tuple[bool, str]:
     from agent.surfaces import apps
     return apps.available()
+
+
+def _voice_status() -> tuple[bool, str]:
+    from agent import voice
+    return voice.available()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -231,22 +240,41 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "message": f"couldn't parse that: {e}"})
 
         cmd, rest = parts[0].lower(), parts[1:]
-        if cmd not in COMMANDS:
-            msg = (f"I don't have a command called {cmd!r}. This is a fixed parser, "
-                   "not the planner — the model arrives in a later step.")
-            HUB.emit("said", {"text": msg})
-            return self._json({"ok": False, "message": msg})
 
-        verb, argnames = COMMANDS[cmd]
-        args: dict[str, str] = {}
-        for i, name in enumerate(argnames):
-            if i == len(argnames) - 1 and name in ("content", "query"):
-                args[name] = " ".join(rest[i:]) if len(rest) > i else ""
-            elif i < len(rest):
-                args[name] = rest[i]
+        if cmd in COMMANDS:
+            # An exact command is taken literally — no model round-trip, no
+            # interpretation, no cost. Typing `list .` should just list.
+            verb, argnames = COMMANDS[cmd]
+            args: dict[str, str] = {}
+            for i, name in enumerate(argnames):
+                if i == len(argnames) - 1 and name in ("content", "query"):
+                    args[name] = " ".join(rest[i:]) if len(rest) > i else ""
+                elif i < len(rest):
+                    args[name] = rest[i]
+            HUB.set_state("thinking")
+            proposed = ProposedAction(verb, args, {k: USER for k in args})
+        else:
+            # Anything else goes to the planner, which degrades loudly: Gemini,
+            # then Ollama, then fixed shapes that announce they are not the model.
+            HUB.set_state("thinking")
+            plan = RT.brain.plan(line)
+            HUB.emit("brain", {"source": plan.source, "model": plan.model,
+                               "degraded": plan.degraded})
+            if plan.say:
+                HUB.emit("said", {"text": plan.say})
+            if not plan.actions:
+                HUB.set_state("idle")
+                return self._json({"ok": bool(plan.say), "message": plan.say,
+                                   "source": plan.source})
+            if len(plan.actions) > 1:
+                # §2: a multi-step request shows the whole plan before step one runs.
+                actions = RT.bus.plan(plan.actions)
+                PENDING_PLAN[:] = actions[1:]
+                proposed = plan.actions[0]
+            else:
+                proposed = plan.actions[0]
 
-        HUB.set_state("thinking")
-        action = RT.bus.propose(ProposedAction(verb, args, {k: USER for k in args}))
+        action = RT.bus.propose(proposed)
         HUB.emit("action", {"action": action.to_dict()})
 
         if action.risk is Risk.BLACK:
