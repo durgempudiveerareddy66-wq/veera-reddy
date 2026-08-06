@@ -1,0 +1,15 @@
+# Keys. The single most important line in this file.
+.env
+.env.*
+!.env.example
+
+# The journal is a record of everything JARVIS did on this machine, including
+# real paths and real recipient addresses. It does not belong in git.
+logs/
+*.jsonl
+
+.venv/
+__pycache__/
+*.pyc
+.jarvis_trash/
+memory/

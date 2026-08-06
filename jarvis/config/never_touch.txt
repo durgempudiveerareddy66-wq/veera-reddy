@@ -1,0 +1,13 @@
+# Extra never-touch paths. ADD-ONLY.
+#
+# Entries here are ADDED to the hardcoded BLACK set in agent/paths.py. Nothing in
+# this file can remove anything from that set — deleting a line here does not make
+# C:\Windows writable. That is deliberate: a security boundary that a text file can
+# switch off is not a boundary.
+#
+# One absolute path per line. Environment variables are expanded.
+# Windows examples (uncomment and edit):
+#
+# %USERPROFILE%\Documents\Tax
+# %USERPROFILE%\Documents\Personal
+# D:\Backups

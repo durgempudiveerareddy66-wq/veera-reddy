@@ -1,0 +1,38 @@
+[
+  {
+    "done": false,
+    "due": "2026-08-03",
+    "title": "Chase INV-1045",
+    "value": 2700
+  },
+  {
+    "done": false,
+    "due": "2026-08-04",
+    "title": "Send Brightloom revised scope",
+    "value": 18000
+  },
+  {
+    "done": false,
+    "due": "2026-08-05",
+    "title": "Calder booking bug",
+    "value": 8800
+  },
+  {
+    "done": false,
+    "due": "2026-08-12",
+    "title": "Write stock import case study",
+    "value": 0
+  },
+  {
+    "done": false,
+    "due": "2026-08-20",
+    "title": "Renew hosting",
+    "value": 0
+  },
+  {
+    "done": false,
+    "due": "2026-08-07",
+    "title": "Piper onboarding estimate",
+    "value": 4200
+  }
+]

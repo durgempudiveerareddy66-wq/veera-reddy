@@ -1,0 +1,34 @@
+# Commands JARVIS may run. ALLOWLIST, not denylist.
+#
+# A denylist is defeated by encoding, chaining and aliases — you cannot enumerate
+# every spelling of a bad command, but you can enumerate the good ones. Anything
+# not on this list is BLACK: refused outright, not escalated to a confirmation.
+#
+# One command per line. For git, list the subcommand too ("git status"), because
+# `git` on its own says nothing about whether the operation publishes anything.
+#
+# Add to this deliberately, Reddie. Every line is something JARVIS can run on your
+# machine after a single "yes".
+
+# --- git: read-only and local-history subcommands only -----------------------
+git
+git status
+git add
+git commit
+git diff
+git log
+git branch
+git checkout
+git show
+# NOT listed, and RED even if you add them: push, reset, clean, rebase.
+# Those are handled by name in policy.py — adding them here does not make them
+# GREEN, it only makes them reachable at RED.
+
+# --- runtimes ----------------------------------------------------------------
+python
+node
+npm run
+
+# --- filesystem --------------------------------------------------------------
+mkdir
+dir
