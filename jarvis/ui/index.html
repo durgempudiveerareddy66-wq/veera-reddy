@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JARVIS</title>
+<link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<!-- ── TOP: telemetry, crowded by design ─────────────────────────────── -->
+<header class="strip" id="strip">
+  <div class="cluster">
+    <span class="lbl">BRAIN</span><span class="val" id="t-brain">—</span>
+  </div>
+  <div class="rule"></div>
+  <div class="cluster">
+    <span class="lbl">STT</span><span class="val dim" id="t-stt">—</span>
+    <span class="lbl">TTS</span><span class="val dim" id="t-tts">—</span>
+    <span class="lbl">WAKE</span><span class="val dim" id="t-wake">—</span>
+  </div>
+  <div class="rule"></div>
+  <div class="cluster">
+    <span class="lbl">DRY RUN</span><span class="val" id="t-dry">—</span>
+    <span class="lbl">CHROME</span><span class="val dim" id="t-chrome">—</span>
+  </div>
+  <div class="rule"></div>
+  <div class="cluster">
+    <span class="lbl">VERBS</span><span class="num" id="t-verbs">0</span>
+    <span class="lbl">INDEXED</span><span class="num" id="t-files">0</span>
+    <span class="lbl">ACTIONS</span><span class="num" id="t-acts">0</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="cluster" id="t-state-wrap">
+    <span class="lbl">STATE</span><span class="val" id="t-state">IDLE</span>
+  </div>
+</header>
+
+<div class="yolo" id="yolo" hidden>JARVIS_YOLO=1 — AMBER AND RED ARE BEING AUTO-CONFIRMED — THIS IS A BAD IDEA</div>
+<div class="notes" id="notes"></div>
+
+<div class="main">
+
+<!-- ── LEFT: the vault graph ─────────────────────────────────────────── -->
+<section class="panel graph" id="graph-panel">
+  <div class="panel-head">
+    <span class="lbl">VAULT</span>
+    <span class="num sm" id="g-nodes">0</span><span class="lbl dim">NODES</span>
+    <span class="num sm" id="g-links">0</span><span class="lbl dim">LINKS</span>
+  </div>
+  <canvas id="graph"></canvas>
+  <div class="panel-foot lbl dim">
+    HOVER ISOLATE · CLICK INSPECT · SHIFT-CLICK PATH · DRAG PAN · SCROLL ZOOM
+  </div>
+  <div class="inspector" id="inspector" hidden></div>
+</section>
+
+<!-- ── CENTRE: the reactor ───────────────────────────────────────────── -->
+<main class="reactor-wrap">
+  <svg class="reactor" id="reactor" viewBox="0 0 400 400" aria-hidden="true">
+    <defs>
+      <radialGradient id="core-g">
+        <stop offset="0%"  stop-color="#CFFAFF"/>
+        <stop offset="45%" stop-color="#00E5FF"/>
+        <stop offset="100%" stop-color="#00E5FF" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+
+    <!-- structural, always dim -->
+    <circle class="ring struct" cx="200" cy="200" r="186"/>
+    <circle class="ring struct" cx="200" cy="200" r="150"/>
+
+    <!-- rotating segmented arcs -->
+    <g id="r-outer" class="ring-grp"><circle class="ring seg-a" cx="200" cy="200" r="170"/></g>
+    <g id="r-mid"   class="ring-grp"><circle class="ring seg-b" cx="200" cy="200" r="134"/></g>
+    <g id="r-inner" class="ring-grp"><circle class="ring seg-c" cx="200" cy="200" r="104"/></g>
+
+    <!-- tick marks, resolved one at a time while thinking -->
+    <g id="ticks" class="ticks"></g>
+
+    <!-- mic-driven bars, listening only -->
+    <g id="bars" class="bars"></g>
+
+    <!-- countdown arc, amber, awaiting confirmation -->
+    <circle id="countdown" class="countdown" cx="200" cy="200" r="158"/>
+
+    <!-- blocked arc, red, held until acknowledged -->
+    <circle id="blockarc" class="blockarc" cx="200" cy="200" r="158"/>
+
+    <circle class="core-glow" id="core-glow" cx="200" cy="200" r="62" fill="url(#core-g)"/>
+    <circle class="core" id="core" cx="200" cy="200" r="34"/>
+  </svg>
+  <div class="reactor-read">
+    <div class="num big" id="r-num">00</div>
+    <div class="lbl" id="r-state">IDLE</div>
+  </div>
+</main>
+
+<!-- ── RIGHT: the action stack ───────────────────────────────────────── -->
+<section class="panel stack" id="stack-panel">
+  <div class="panel-head">
+    <span class="lbl">ACTION STACK</span>
+    <span class="spacer"></span>
+    <button class="ctl" id="undo-btn">UNDO</button>
+  </div>
+  <div class="cards" id="cards"></div>
+</section>
+
+</div><!-- /.main -->
+
+<!-- ── BOTTOM: the command bar ───────────────────────────────────────── -->
+<footer class="bar">
+  <div class="caption lbl dim" id="caption">TEXT IS EQUAL TO VOICE — VOICE ARRIVES IN STEP 4</div>
+  <div class="bar-row">
+    <button class="ctl round" id="mic-btn" title="microphone — step 4">MIC</button>
+    <input id="cmd" type="text" autocomplete="off" spellcheck="false"
+           placeholder="list .   ·   create notes.md hello   ·   help">
+    <button class="ctl" id="send-btn">RUN</button>
+    <button class="ctl" id="brief-btn">BRIEF</button>
+    <button class="ctl" id="journal-btn">JOURNAL</button>
+  </div>
+</footer>
+
+<!-- ── CONFIRMATION OVERLAY ──────────────────────────────────────────── -->
+<div class="overlay" id="overlay" hidden>
+  <div class="conf" id="conf">
+    <div class="conf-tier lbl" id="conf-tier">AMBER</div>
+    <div class="conf-preview" id="conf-preview"></div>
+    <ul class="conf-reasons" id="conf-reasons"></ul>
+    <div class="conf-code" id="conf-code" hidden>
+      <span class="lbl">TYPE THIS CODE TO CONFIRM</span>
+      <div class="num code" id="conf-code-val">····</div>
+      <input id="conf-code-in" maxlength="4" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="conf-row">
+      <button class="ctl danger" id="conf-yes">CONFIRM</button>
+      <button class="ctl" id="conf-no">CANCEL</button>
+      <span class="spacer"></span>
+      <span class="lbl dim">TIMES OUT TO CANCEL IN</span>
+      <span class="num sm" id="conf-left">20.0</span>
+    </div>
+  </div>
+</div>
+
+<script src="/ui/graph.js"></script>
+<script src="/ui/app.js"></script>
+</body>
+</html>

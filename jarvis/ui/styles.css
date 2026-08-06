@@ -1,0 +1,249 @@
+/* JARVIS HUD — the visual language of §1.
+   Cyan-dominant by design. Outline, not fill. The circle is the primary shape.
+   Everything glows a little; restraint means not blowing to white.
+   No web fonts, no CDN — this runs offline. */
+
+:root{
+  --bg:        #01070C;
+  --bg-2:      #02090F;
+  --panel:     rgba(0,32,42,.22);
+  --cy:        #00E5FF;   /* the one accent, used everywhere */
+  --cy-dim:    #0A7C8C;   /* structural tier — inactive strokes */
+  --cy-text:   #7FE9F5;   /* body text */
+  --amber:     #FFB020;   /* waiting on you */
+  --red:       #FF3B30;   /* blocked, failed, refused */
+  /* green is not in this palette */
+
+  --stroke:    rgba(0,229,255,.58);
+  --stroke-lo: rgba(10,124,140,.85);
+  --glow:      drop-shadow(0 0 6px currentColor);
+  --glow-2:    drop-shadow(0 0 6px currentColor) drop-shadow(0 0 14px currentColor);
+
+  --f: "Bahnschrift","Segoe UI Semibold","Segoe UI",sans-serif;
+  --fn: "Consolas","Cascadia Mono",monospace;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* [hidden] and a later `display:` rule have equal specificity, so the class wins
+   and the attribute silently does nothing — the confirmation overlay stays on
+   screen forever. This one line is load-bearing. */
+[hidden]{display:none !important}
+
+html,body{height:100%;overflow:hidden}
+body{
+  background:
+    radial-gradient(120% 90% at 50% 45%, #02090F 0%, #01070C 60%, #00040A 100%);
+  color:var(--cy-text);
+  font-family:var(--f);
+  font-size:12px;
+  letter-spacing:.02em;
+  display:flex;
+  flex-direction:column;
+  gap:9px;
+  padding:9px;
+}
+
+/* The three panels own the vertical space. Keeping them in their own grid means
+   the telemetry strip and the notes cannot steal the 1fr row. */
+.main{
+  flex:1;min-height:0;display:grid;gap:9px;
+  grid-template-columns:clamp(280px,23vw,400px) 1fr clamp(300px,25vw,440px);
+}
+
+/* faint circuit-trace texture at ~4% — never flat grey */
+.grain{
+  position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.04;
+  background-image:
+    linear-gradient(var(--cy) 1px,transparent 1px),
+    linear-gradient(90deg,var(--cy) 1px,transparent 1px),
+    linear-gradient(var(--cy) 1px,transparent 1px);
+  background-size:180px 180px,180px 180px,36px 36px;
+  background-position:0 0,0 0,0 0;
+  mask-image:radial-gradient(80% 70% at 50% 45%,transparent 30%,#000 100%);
+}
+
+/* ── type ─────────────────────────────────────────────────────────── */
+.lbl{
+  font-size:10px;text-transform:uppercase;letter-spacing:.18em;
+  color:var(--cy);opacity:.95;white-space:nowrap;
+}
+.lbl.dim{color:#4FB8C8;opacity:1}
+.val{font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:#B7F2FA}
+.val.dim{color:#5FC6D6}
+.num{
+  font-family:var(--fn);font-variant-numeric:tabular-nums;
+  font-size:22px;line-height:1;color:var(--cy);filter:var(--glow);
+}
+.num.sm{font-size:14px}
+.num.big{font-size:56px;letter-spacing:-.02em}
+.num.code{font-size:30px;letter-spacing:.34em;color:var(--red)}
+
+/* ── panels: 1px stroke over near-transparent fill, hard corners ──── */
+.panel{
+  position:relative;z-index:1;
+  border:1px solid var(--stroke);
+  background:var(--panel);
+  border-radius:2px;
+  display:flex;flex-direction:column;min-height:0;
+  box-shadow:0 0 18px rgba(0,229,255,.06) inset;
+}
+.panel-head{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 10px;border-bottom:1px solid var(--stroke-lo);
+}
+.panel-foot{padding:6px 10px;border-top:1px solid var(--stroke-lo);font-size:9px;opacity:.9}
+.spacer{flex:1}
+
+/* ── top strip: crowded at the edges ──────────────────────────────── */
+.strip{
+  grid-column:1/-1;z-index:2;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  border:1px solid var(--stroke);background:var(--panel);
+  border-radius:2px;padding:7px 12px;
+}
+.cluster{display:flex;align-items:center;gap:7px}
+.rule{width:1px;height:16px;background:var(--stroke-lo)}
+#t-state{color:var(--cy);filter:var(--glow)}
+.strip.awaiting #t-state{color:var(--amber)}
+.strip.blocked  #t-state{color:var(--red)}
+
+.yolo{
+  grid-column:1/-1;z-index:3;text-align:center;padding:5px;
+  border:1px solid var(--red);color:var(--red);
+  font-size:10px;letter-spacing:.2em;filter:var(--glow);
+}
+.notes{
+  grid-column:1/-1;z-index:2;display:flex;flex-direction:column;gap:3px;
+}
+.note{
+  font-size:10px;letter-spacing:.06em;color:var(--amber);
+  border-left:2px solid var(--amber);padding:3px 8px;opacity:.9;
+}
+
+/* ── graph ────────────────────────────────────────────────────────── */
+.graph canvas{flex:1;width:100%;min-height:0;display:block;cursor:grab}
+.graph canvas:active{cursor:grabbing}
+.inspector{
+  position:absolute;left:10px;right:10px;bottom:34px;
+  border:1px solid var(--stroke);background:rgba(1,10,16,.94);
+  padding:9px 11px;border-radius:2px;
+}
+.inspector h3{font-size:12px;color:var(--cy);letter-spacing:.06em;margin-bottom:4px}
+.inspector p{font-size:10px;color:#5FC6D6;word-break:break-all;line-height:1.5}
+
+/* ── reactor: the single brightest object ─────────────────────────── */
+.reactor-wrap{
+  position:relative;z-index:1;display:grid;place-items:center;min-height:0;
+}
+.reactor{width:min(52vh,100%);height:min(52vh,100%);overflow:visible}
+.ring{fill:none;stroke-width:1.2}
+.ring.struct{stroke:var(--cy-dim);opacity:.65}
+.seg-a{stroke:var(--cy);opacity:.8;stroke-dasharray:52 22 12 30;color:var(--cy);filter:var(--glow)}
+.seg-b{stroke:var(--cy);opacity:.62;stroke-dasharray:26 14;color:var(--cy);filter:var(--glow)}
+.seg-c{stroke:var(--cy);opacity:.9;stroke-dasharray:88 260;stroke-linecap:butt;color:var(--cy);filter:var(--glow)}
+/* NO transform-origin here. The SVG `transform` attribute is a presentation
+   attribute for the CSS `transform` property, so rotate(θ 200 200) already
+   carries its pivot — adding transform-origin applies the origin a second time
+   and the rings orbit the centre instead of spinning on it. Measured: #r-outer
+   rendered 538px wide inside a 494px parent, offset up and to the right. */
+
+.ticks line{stroke:#2C93A6;stroke-width:1.5}
+.ticks line.on{stroke:var(--cy);color:var(--cy);filter:var(--glow)}
+.bars line{stroke:var(--cy);stroke-width:2.2;color:var(--cy);filter:var(--glow);opacity:.85}
+
+.countdown,.blockarc{
+  fill:none;stroke-width:2.6;opacity:0;
+  /* These two are pure CSS transforms, so they DO need an origin — and
+     transform-box:view-box makes 200px 200px mean viewBox units, not the
+     element's own bounding box. */
+  transform:rotate(-90deg);transform-origin:200px 200px;transform-box:view-box;
+}
+.countdown{stroke:var(--amber);color:var(--amber)}
+.blockarc{stroke:var(--red);color:var(--red)}
+.countdown.on,.blockarc.on{opacity:1;filter:var(--glow-2)}
+
+.core{fill:none;stroke:var(--cy);stroke-width:1.6;color:var(--cy);filter:var(--glow-2)}
+.core-glow{opacity:.5}
+
+.reactor-read{
+  position:absolute;display:grid;place-items:center;gap:2px;pointer-events:none;
+}
+.reactor-read .lbl{opacity:.85}
+
+/* ── action stack ─────────────────────────────────────────────────── */
+.cards{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px}
+.cards::-webkit-scrollbar{width:6px}
+.cards::-webkit-scrollbar-thumb{background:var(--stroke-lo)}
+.card{
+  border:1px solid var(--stroke-lo);border-left-width:3px;
+  background:rgba(0,32,42,.3);padding:7px 9px;border-radius:0 2px 2px 0;
+}
+.card.GREEN{border-left-color:var(--cy)}
+.card.AMBER{border-left-color:var(--amber)}
+.card.RED  {border-left-color:var(--red)}
+.card.BLACK{border-left-color:var(--red);background:rgba(60,6,4,.28)}
+.card.done{opacity:.42}
+.card-top{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+.card-verb{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--cy)}
+.card-state{font-size:9px;letter-spacing:.16em;color:var(--cy-dim);margin-left:auto}
+.card-prev{font-size:11.5px;line-height:1.55;color:#B7F2FA;word-break:break-word}
+.card-why{font-size:9.5px;color:#4FB8C8;margin-top:4px;line-height:1.5}
+.card.BLACK .card-prev{color:var(--red)}
+
+/* ── command bar ──────────────────────────────────────────────────── */
+.bar{
+  grid-column:1/-1;z-index:2;
+  border:1px solid var(--stroke);background:var(--panel);
+  border-radius:2px;padding:8px 11px;display:flex;flex-direction:column;gap:7px;
+}
+.caption{min-height:12px;font-size:10px}
+.bar-row{display:flex;align-items:center;gap:8px}
+#cmd{
+  flex:1;background:rgba(0,20,28,.55);border:1px solid var(--stroke-lo);
+  border-radius:2px;padding:9px 11px;color:var(--cy-text);
+  font-family:var(--fn);font-size:13px;outline:none;
+}
+#cmd:focus{border-color:var(--cy);box-shadow:0 0 12px rgba(0,229,255,.18)}
+#cmd::placeholder{color:var(--cy-dim);opacity:.7}
+
+.ctl{
+  background:transparent;border:1px solid var(--stroke);color:var(--cy);
+  font-family:var(--f);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:8px 13px;border-radius:2px;cursor:pointer;
+}
+.ctl:hover{background:rgba(0,229,255,.09);box-shadow:0 0 12px rgba(0,229,255,.2)}
+.ctl.round{border-radius:50%;width:44px;height:44px;padding:0}
+.ctl.danger{border-color:var(--red);color:var(--red)}
+.ctl.danger:hover{background:rgba(255,59,48,.1);box-shadow:0 0 12px rgba(255,59,48,.25)}
+
+/* ── confirmation overlay: takes the centre ───────────────────────── */
+.overlay{
+  position:fixed;inset:0;z-index:20;display:grid;place-items:center;
+  background:rgba(0,4,8,.82);backdrop-filter:blur(2px);
+}
+.conf{
+  width:min(620px,92vw);border:1px solid var(--amber);
+  background:rgba(1,12,18,.97);padding:20px 22px;border-radius:2px;
+  box-shadow:0 0 40px rgba(255,176,32,.14);
+}
+.conf.red{border-color:var(--red);box-shadow:0 0 40px rgba(255,59,48,.18)}
+.conf-tier{font-size:11px;color:var(--amber);letter-spacing:.3em;margin-bottom:9px}
+.conf.red .conf-tier{color:var(--red)}
+.conf-preview{font-size:15px;line-height:1.6;color:#CFF6FD;margin-bottom:9px;word-break:break-word}
+.conf-reasons{list-style:none;margin-bottom:13px}
+.conf-reasons li{font-size:10.5px;color:#5FC6D6;line-height:1.6}
+.conf-reasons li::before{content:"· "}
+.conf-code{margin:13px 0;display:grid;gap:6px;justify-items:start}
+#conf-code-in{
+  background:rgba(0,20,28,.55);border:1px solid var(--red);border-radius:2px;
+  padding:8px 12px;color:var(--red);font-family:var(--fn);font-size:22px;
+  letter-spacing:.34em;width:150px;text-transform:uppercase;outline:none;
+}
+.conf-row{display:flex;align-items:center;gap:9px}
+
+@media (max-width:1100px){
+  .main{grid-template-columns:1fr;grid-template-rows:1fr 1.2fr 1fr}
+  .graph{min-height:220px}
+  .stack{min-height:200px}
+}

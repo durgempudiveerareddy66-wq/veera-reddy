@@ -2,7 +2,7 @@
 
 A voice-controlled agent that takes actions on a Windows machine.
 
-**Build status: step 1 of 7 complete.** The spine — Action bus, policy engine,
+**Build status: step 3 of 7 complete.** The spine — Action bus, policy engine,
 journal, undo — is built and proved. No surfaces are attached, so JARVIS currently
 cannot touch anything. That is deliberate: §10 of the build spec puts the safety
 machinery first and gives it hands afterwards.
@@ -12,7 +12,7 @@ machinery first and gives it hands afterwards.
 | 0 | Interview, `CLAUDE.md` | done — 1 of 14 answered, rest recorded `UNKNOWN` |
 | 1 | Action bus, policy engine, journal | **done, 59 tests passing** |
 | 2 | `files.py`, `apps.py` | **done, 16 more tests passing** |
-| 3 | The HUD — reactor, action stack, telemetry, graph | not started |
+| 3 | The HUD — reactor, action stack, telemetry, graph | **done** |
 | 4 | Voice — wake word, Scribe, TTS, barge-in | not started |
 | 5 | `browser.py` | not started |
 | 6 | `shell.py`, `comms.py` | not started |
@@ -25,6 +25,7 @@ machinery first and gives it hands afterwards.
 Nothing to install — step 1 is stdlib Python only.
 
 ```bash
+python jarvis/server.py              # the HUD  →  http://127.0.0.1:8765
 python jarvis/prove.py               # watch it refuse things
 python jarvis/run.py                 # the text box — type at the file surface
 python jarvis/tests/test_spine.py    # 59 tests, the spine
