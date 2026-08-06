@@ -62,8 +62,13 @@ _WINDOWS_SYSTEM_ROOTS: tuple[str, ...] = (
     r"C:\PROGRA~1",
     r"C:\PROGRA~2",
     r"C:\PROGRA~3",
-    r"C:\DOCUME~1",          # legacy Documents and Settings junction
 )
+# NOT listed: C:\DOCUME~1. It is the 8.3 name for "C:\Documents and Settings",
+# which on Vista and later is a JUNCTION pointing at C:\Users. resolve() follows
+# it, so listing it turns the never-touch set into an ancestor of every user
+# profile on the machine — which is exactly what happened on Reddie's box: the
+# vault indexed 66 files as 0 nodes because all of them were suddenly BLACK.
+# The lesson generalises, and is enforced below in _sane_roots().
 
 # Paths relative to the user's home that hold credentials or live sessions.
 _HOME_RELATIVE_BLACK: tuple[str, ...] = (
@@ -160,9 +165,43 @@ class PathGuard:
     def __post_init__(self) -> None:
         self.safe_zone = resolve(self.safe_zone)
         self.index_roots = tuple(resolve(r) for r in self.index_roots)
-        self._never_touch = tuple(resolve(r) for r in self._core_never_touch()) + tuple(
-            resolve(r) for r in self.extra_never_touch
-        )
+        raw = list(self._core_never_touch()) + [str(r) for r in self.extra_never_touch]
+        self._never_touch, self.warnings = self._sane_roots(raw)
+
+    def _sane_roots(self, raw: list[str]) -> tuple[tuple[Path, ...], tuple[str, ...]]:
+        """Resolve never-touch roots, refusing any that would swallow everything.
+
+        A never-touch root that is an ancestor of the safe write zone, of the
+        user's home, or of a filesystem root makes every path BLACK. The failure
+        is silent and total: reads return nothing, the index is empty, and it
+        looks exactly like a machine with no files on it.
+
+        The cause is almost always junction- or symlink-following during
+        resolve(). So each root is checked after resolution, and one that has
+        become dangerously broad falls back to its literal unresolved form and
+        says so out loud.
+        """
+        home = Path.home()
+        out: list[Path] = []
+        warnings: list[str] = []
+        for r in raw:
+            resolved = resolve(r)
+            too_broad = (
+                resolved == resolved.parent                      # a filesystem root
+                or _is_within(self.safe_zone, resolved)
+                or _is_within(home, resolved)
+            )
+            if too_broad:
+                literal = Path(os.path.expandvars(r))
+                warnings.append(
+                    f"never-touch root {r} resolves to {resolved}, which contains "
+                    f"your home or safe zone — almost certainly a junction. Using "
+                    f"the literal path instead so it cannot blackhole everything."
+                )
+                out.append(literal)
+            else:
+                out.append(resolved)
+        return tuple(out), tuple(warnings)
 
     @staticmethod
     def _core_never_touch() -> list[str]:

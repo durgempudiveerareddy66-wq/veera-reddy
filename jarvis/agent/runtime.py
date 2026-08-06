@@ -94,6 +94,11 @@ def build(*, on_event=None) -> Runtime:
         extra_never_touch=load_extra_never_touch(ROOT / "config" / "never_touch.txt"),
     )
 
+    # A guard that quietly blacklists everything looks exactly like an empty
+    # machine, so its complaints go straight to the telemetry strip.
+    for w in guard.warnings:
+        notes.append(w)
+
     policy = PolicyEngine(PolicyConfig.from_env(guard, ROOT / "config"))
     if policy.config.yolo:
         notes.append(

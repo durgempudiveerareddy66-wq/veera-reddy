@@ -144,9 +144,13 @@ class TestBlackPaths(Base):
         # are the same folder. A string comparison sees two paths; an attacker
         # sees one bypass.
         for p in (r"C:\PROGRA~1\App\x.exe", r"C:\PROGRA~2\App",
-                  r"c:\progra~1\app", r"C:\DOCUME~1\user"):
+                  r"c:\progra~1\app"):
             with self.subTest(p=p):
                 self.assertTrue(is_black_windows_path(p), p)
+        # NOT C:\DOCUME~1 — that is the short name for "Documents and Settings",
+        # a junction to C:\Users. Blacklisting it blacklists every user profile
+        # on the machine. This assertion existed in step 4 and was the bug.
+        self.assertFalse(is_black_windows_path(r"C:\DOCUME~1\user"))
 
     def test_ordinary_windows_paths_are_not_black(self):
         for p in (r"C:\Users\Reddie\JarvisWorkspace\a.md", r"D:\Work\invoice.pdf",
@@ -184,6 +188,33 @@ class TestBlackPaths(Base):
         zone, resolved, _ = self.guard.zone(str(link / "passwd"))
         self.assertEqual(zone, Zone.BLACK)
         self.assertEqual(str(resolved), "/etc/passwd")
+
+    def test_a_never_touch_root_can_never_swallow_the_safe_zone(self):
+        """The step-4 regression, in test form.
+
+        C:\\DOCUME~1 is the 8.3 name for "C:\\Documents and Settings", a junction
+        pointing at C:\\Users. Listing it made resolve() expand the never-touch set
+        into an ancestor of every user profile: 66 real files indexed as 0 nodes,
+        no error anywhere, indistinguishable from an empty disk.
+        """
+        root = Path(self.tmp.name)
+        (root / "Users").mkdir(exist_ok=True)
+        trap = root / "DOCUME~1"
+        trap.symlink_to(root / "Users")          # the junction, simulated
+        safe = root / "Users" / "me" / "Workspace"
+        safe.mkdir(parents=True)
+
+        guard = PathGuard(safe_zone=safe, extra_never_touch=(trap,))
+        self.assertTrue(guard.warnings, "a swallowing root must be reported, not obeyed")
+        note = safe / "note.md"
+        self.assertFalse(guard.is_black(note)[0],
+                         "an ordinary file was blackholed by a junction")
+        self.assertEqual(guard.zone(str(note))[0], Zone.SAFE)
+
+    def test_the_real_windows_black_list_has_no_junction_traps(self):
+        # C:\DOCUME~1 must not come back. The others resolve to themselves.
+        from agent.paths import _WINDOWS_SYSTEM_ROOTS
+        self.assertNotIn(r"C:\DOCUME~1", _WINDOWS_SYSTEM_ROOTS)
 
     def test_extra_never_touch_is_add_only(self):
         guard = PathGuard(safe_zone=self.safe, extra_never_touch=(self.outside,))
