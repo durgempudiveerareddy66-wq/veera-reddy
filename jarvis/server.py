@@ -30,7 +30,7 @@ from agent.runtime import build as build_runtime
 HERE = Path(__file__).resolve().parent
 UI = HERE / "ui"
 HOST, PORT = "127.0.0.1", 8765
-BUILD = "fix3"        # printed at startup, so a stale process is obvious
+BUILD = "step5"        # printed at startup, so a stale process is obvious
 USER = Provenance(Origin.USER)
 
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",
@@ -104,6 +104,9 @@ def health() -> dict:
         f"ollama:{bs['ollama_model']}" if bs["ollama_model"] else "none")
     apps_ok, apps_why = _apps_status()
     v_ok, v_why = _voice_status()
+    from agent.surfaces import browser as _b
+    c_ok, c_why = _b.available()
+    _chrome_label = c_why if not c_ok else c_why.upper()
     _v_label = "READY" if v_ok else v_why[:46]
     return {
         "brain": brain,
@@ -115,7 +118,7 @@ def health() -> dict:
         "surfaces": list(RT.attached),
         "apps_ok": apps_ok,
         "apps_why": apps_why,
-        "chrome": "not built (step 5)",
+        "chrome": _chrome_label,
         "verbs": len(registry.all_verbs()),
         "attached_verbs": sum(1 for s in registry.all_verbs().values() if s.attached),
         "journal": stats,

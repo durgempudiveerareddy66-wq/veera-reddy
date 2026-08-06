@@ -124,6 +124,19 @@ def build(*, on_event=None) -> Runtime:
     if not ok:
         notes.append(f"apps surface is attached but inert: {why}")
 
+    from .surfaces import browser as browser_surface
+    browser_surface.configure(guard)
+    browser_surface.attach_all()
+    attached.append("browser")
+    b_ok, b_why = browser_surface.available()
+    if not b_ok:
+        notes.append(f"browser surface is attached but inert: {b_why}")
+    elif browser_surface._using_main_profile():
+        notes.append(
+            "BROWSER_USE_MAIN_PROFILE=1 — JARVIS is attached to your REAL Chrome "
+            "profile, with your live bank and client sessions in it."
+        )
+
     brain = Brain()
     if not brain.api_key:
         notes.append(
