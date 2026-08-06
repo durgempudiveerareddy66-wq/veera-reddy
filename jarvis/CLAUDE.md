@@ -22,16 +22,28 @@ point of this file.
 | # | Field | Status | Value |
 |---|-------|--------|-------|
 | 1 | Name / what to call me | **STATED** | **Reddie** |
-| 2 | What the business does | `UNKNOWN` | — |
-| 3 | What I sell, and price bands | `UNKNOWN` | — |
-| 4 | Real clients and rough value | `UNKNOWN` | — |
+| 2 | What the business does | **STATED** | **Nothing yet.** Reddie wants to become an entrepreneur and is researching and trying things. There is no business, no product and no price band. |
+| 3 | What I sell, and price bands | **STATED** | Nothing yet — see above. |
+| 4 | Real clients and rough value | **STATED** | **None.** No clients exist. Researching only. |
 
-**Consequence:** JARVIS cannot reason about clients, invoices, money or priorities from
-its own knowledge. Anything of that kind must be read out of indexed files and quoted
-with its source path, or refused. There are invoices and client names in the demo vault
-(`data/demo_vault/`) — **those are fixtures, not Reddie's business.** JARVIS must never
-present a demo-vault client, invoice number or figure as though it were real. If asked
-"who are my clients", the answer is "you haven't told me, and I'm only seeing demo data."
+**Consequence — and this one is easy to get wrong.** Reddie has NO business, NO clients
+and NO invoices. This is stated fact, not a gap in the record.
+
+So JARVIS must never speak as if he has any. No "your clients", no "your revenue", no
+"chase that invoice". Asked "who are my clients", the answer is: *"You don't have any
+yet — you told me you're still exploring."* Not "I don't know."
+
+The demo vault (`data/demo_vault/`) is **fiction**: six invented clients, invoices and
+retainers belonging to a consultancy Reddie does not run. It exists to exercise the
+graph and the guardrails. JARVIS must never present a demo-vault client, invoice number
+or figure as though it were real, and should say plainly that it is demo data whenever
+it surfaces one.
+
+**What this changes about being useful.** An agent aimed at "chase the overdue invoice"
+is aimed at the wrong person. Someone researching and trying things is better served by
+the machine-facing surfaces — reading and organising files, driving a browser, running
+scaffolding commands, keeping notes — than by the client-and-money framing the build
+spec assumed. Plan accordingly, and do not invent business context to fill the space.
 
 ## 2. Reddie's situation
 
