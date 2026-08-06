@@ -30,6 +30,7 @@ from agent.runtime import build as build_runtime
 HERE = Path(__file__).resolve().parent
 UI = HERE / "ui"
 HOST, PORT = "127.0.0.1", 8765
+BUILD = "fix3"        # printed at startup, so a stale process is obvious
 USER = Provenance(Origin.USER)
 
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",
@@ -216,7 +217,11 @@ class Handler(BaseHTTPRequestHandler):
                 except queue.Empty:
                     self.wfile.write(b": ping\n\n")     # keep the pipe warm
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            # A browser reload aborts the old SSE stream. On Linux that surfaces
+            # as BrokenPipeError or ConnectionResetError; on Windows it is
+            # ConnectionAbortedError (WinError 10053). Missing the Windows name
+            # turned an ordinary page refresh into a server error banner.
             pass
         finally:
             HUB.unsubscribe(q)
@@ -354,14 +359,27 @@ def main() -> int:
     RT = build_runtime(on_event=lambda kind, payload: HUB.emit(kind, payload))
     threading.Thread(target=_expire_pending, daemon=True).start()
 
-    print(f"\n  J A R V I S  ·  HUD  ·  http://{HOST}:{PORT}\n")
+    # Bind FIRST. Printing the banner before binding meant a second instance
+    # printed a perfectly normal-looking startup and then died on "address
+    # already in use" — while the FIRST, older process kept serving the browser.
+    # Every restart looked successful and changed nothing.
+    try:
+        srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as e:
+        print(f"\n  CANNOT START — port {PORT} is already in use ({e}).")
+        print(f"  Another JARVIS is already running and IS the one your browser")
+        print(f"  is talking to. It may be running older code.\n")
+        print(f"  Windows:  taskkill /F /IM python.exe")
+        print(f"  then start this again.\n")
+        return 1
+
+    print(f"\n  J A R V I S  ·  HUD  ·  build {BUILD}  ·  http://{HOST}:{PORT}\n")
     print(f"  safe write zone : {RT.guard.safe_zone}")
     print(f"  dry run         : {'ON' if RT.policy.config.dry_run else 'OFF'}")
+    print(f"  vault           : {vault.build(RT.guard)['stats']}")
     for n in RT.notes:
         print(f"  ! {n}")
     print("\n  ctrl-c to stop\n")
-
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
