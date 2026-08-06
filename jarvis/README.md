@@ -2,7 +2,7 @@
 
 A voice-controlled agent that takes actions on a Windows machine.
 
-**Build status: step 5 of 7 complete.** The spine — Action bus, policy engine,
+**Build status: step 6 of 7 complete.** The spine — Action bus, policy engine,
 journal, undo — is built and proved. No surfaces are attached, so JARVIS currently
 cannot touch anything. That is deliberate: §10 of the build spec puts the safety
 machinery first and gives it hands afterwards.
@@ -15,7 +15,7 @@ machinery first and gives it hands afterwards.
 | 3 | The HUD — reactor, action stack, telemetry, graph | **done** |
 | 4 | Voice — wake word, Scribe, TTS, barge-in | **code done, hardware UNVERIFIED** |
 | 5 | `browser.py` | **done, 15 tests, verified against real Chrome** |
-| 6 | `shell.py`, `comms.py` | not started |
+| 6 | `shell.py`, `comms.py` | **done, 24 tests, dry-run OFF** |
 | 7 | Memory, guardrail suite, this README in full | not started |
 
 ---
@@ -33,6 +33,7 @@ python jarvis/tests/test_surfaces.py # 16 tests, real files on disk
 python jarvis/tests/test_brain.py    # 16 tests, incl. a compromised planner
 python jarvis/tests/test_voice.py    # 19 tests, synthetic audio
 python jarvis/tests/test_browser.py  # 15 tests, the page-danger gate
+python jarvis/tests/test_danger.py   # 24 tests, real processes and real drafts
 ```
 
 `prove.py` builds a throwaway machine under `/tmp`, proposes eighteen Actions

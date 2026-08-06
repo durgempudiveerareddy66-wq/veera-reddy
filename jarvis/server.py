@@ -30,7 +30,7 @@ from agent.runtime import build as build_runtime
 HERE = Path(__file__).resolve().parent
 UI = HERE / "ui"
 HOST, PORT = "127.0.0.1", 8765
-BUILD = "step5"        # printed at startup, so a stale process is obvious
+BUILD = "step6"        # printed at startup, so a stale process is obvious
 USER = Provenance(Origin.USER)
 
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",

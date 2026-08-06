@@ -137,6 +137,25 @@ def build(*, on_event=None) -> Runtime:
             "profile, with your live bank and client sessions in it."
         )
 
+    from .surfaces import shell as shell_surface
+    shell_surface.configure(guard, policy.config.allowed_commands)
+    shell_surface.attach_all()
+    attached.append("shell")
+    s_ok, s_why = shell_surface.available()
+    if not s_ok:
+        notes.append(f"shell surface: {s_why}")
+
+    from .surfaces import comms as comms_surface
+    comms_surface.configure(guard)
+    comms_surface.attach_all()
+    attached.append("comms")
+    # §3's unknown-recipient rule needs a contact set to mean anything. It is
+    # harvested from the indexed files — nothing else is trusted to name a person.
+    contacts = comms_surface.known_recipients()
+    policy.config.known_recipients = contacts
+    c_ok, c_why = comms_surface.available()
+    notes.append(f"comms surface: {c_why}")
+
     brain = Brain()
     if not brain.api_key:
         notes.append(
