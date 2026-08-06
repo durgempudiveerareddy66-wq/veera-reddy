@@ -49,11 +49,46 @@ $pkgs = @(
 Write-Host ""
 Write-Host "  installing:" -ForegroundColor Cyan
 $pkgs | ForEach-Object { Write-Host "    $_" }
+Write-Host "  roughly 300-400 MB. Several minutes on a first run." -ForegroundColor Yellow
 Write-Host ""
 & $py -m pip install --upgrade pip --quiet
-& $py -m pip install --quiet @pkgs
-if ($LASTEXITCODE -ne 0) { Write-Host "  pip failed - see above." -ForegroundColor Red; exit 1 }
-Write-Host "  packages installed" -ForegroundColor Cyan
+
+# Installed one at a time, with progress. A silent multi-minute install is
+# indistinguishable from a hung terminal - which is the exact failure mode
+# section 9.8 of the build spec warns about, and the first version of this
+# script had it.
+$failed = @()
+$i = 0
+foreach ($pkg in $pkgs) {
+  $i++
+  Write-Host ("  [{0}/{1}] {2} ... " -f $i, $pkgs.Count, $pkg) -NoNewline
+  $log = & $py -m pip install $pkg 2>&1
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "ok" -ForegroundColor Cyan
+  } else {
+    Write-Host "FAILED" -ForegroundColor Red
+    $failed += $pkg
+    $log | Select-Object -Last 6 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+  }
+}
+
+if ($failed.Count -gt 0) {
+  Write-Host ""
+  Write-Host "  these did not install: $($failed -join ', ')" -ForegroundColor Red
+  Write-Host ""
+  if ($failed -contains "openwakeword") {
+    Write-Host "  openwakeword needs onnxruntime or tflite-runtime, which lag behind" -ForegroundColor Yellow
+    Write-Host "  new Python releases. On $ver you may need Python 3.12 for the wake" -ForegroundColor Yellow
+    Write-Host "  word specifically. Everything else - the HUD, the planner, the file" -ForegroundColor Yellow
+    Write-Host "  surface, push-to-talk - works without it." -ForegroundColor Yellow
+    Write-Host ""
+  }
+  Write-Host "  JARVIS still runs. Whatever is missing is reported in the telemetry" -ForegroundColor Yellow
+  Write-Host "  strip and refuses loudly rather than failing quietly." -ForegroundColor Yellow
+} else {
+  Write-Host ""
+  Write-Host "  all packages installed" -ForegroundColor Cyan
+}
 
 # --- .env ---------------------------------------------------------------------
 $envFile = Join-Path $here ".env"
