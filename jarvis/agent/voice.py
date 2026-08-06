@@ -363,8 +363,19 @@ def available() -> tuple[bool, str]:
     if missing:
         return False, ("voice needs " + " and ".join(missing) +
                        " — run: pip install numpy sounddevice")
-    if not os.environ.get("ELEVENLABS_API_KEY"):
+    key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    if not key:
         return False, "ELEVENLABS_API_KEY is not set in jarvis/.env"
+    if not key.startswith("sk_"):
+        # Checked at STARTUP, not after a failed recording. ElevenLabs retired
+        # the old 64-hex key format; the new ones start sk_. Without this check
+        # the first sign of trouble is a 400 AFTER Reddie has spoken, which
+        # blames the microphone for a problem in a config file.
+        return False, (
+            f"ELEVENLABS_API_KEY looks wrong — it starts with {key[:6]!r} but "
+            "ElevenLabs keys start with 'sk_'. The old 64-character format was "
+            "retired. Make a new key at elevenlabs.io → Profile → API Keys."
+        )
 
     try:
         __import__("openwakeword")
