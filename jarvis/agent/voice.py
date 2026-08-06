@@ -24,7 +24,9 @@ import math
 import os
 import threading
 import time
+import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
@@ -36,6 +38,7 @@ FRAME_MS = 32                   # samples per callback chunk
 SILENCE_RMS = 0.012             # below this counts as silence
 SILENCE_HOLD_MS = 900           # this much silence ends the turn
 MAX_UTTERANCE_S = 30            # a stuck-open mic must not stream forever
+MIN_UTTERANCE_S = 0.35          # below this Scribe 400s; say so in words instead
 PREROLL_MS = 1_200              # audio kept from *before* the wake word fired
 WAKE_THRESHOLD = 0.60           # §9.3 — below this a trigger is ignored
 WAKE_COOLDOWN_S = 1.5           # stops one utterance firing the wake word twice
@@ -270,7 +273,14 @@ class Speaker:
 
 
 def transcribe(frames: list, api_key: str = "") -> str:
-    """ElevenLabs Scribe. Called only after the wake word has fired."""
+    """ElevenLabs Scribe. Called only after a turn has been captured.
+
+    Note what this does with a failure: it reads the response BODY. An HTTP 400
+    from ElevenLabs carries a message saying exactly which field it objected to,
+    and the first version of this function discarded it and raised a bare
+    "HTTP Error 400: Bad Request" — which is unactionable, and made a fixable
+    problem look mysterious.
+    """
     import numpy as np
 
     api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "")
@@ -278,24 +288,51 @@ def transcribe(frames: list, api_key: str = "") -> str:
         raise VoiceUnavailable("ELEVENLABS_API_KEY is not set — check jarvis/.env")
 
     audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.float32)
+    seconds = len(audio) / SAMPLE_RATE
+    if seconds < MIN_UTTERANCE_S:
+        # Scribe rejects near-empty audio, and "bad request" is a poor way to
+        # learn you only caught a click.
+        raise VoiceUnavailable(
+            f"only {seconds:.2f}s of audio captured — hold the mic a moment "
+            "longer, or speak a little louder"
+        )
+
     pcm = (np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes()
     wav = _wav_header(len(pcm)) + pcm
 
-    boundary = "----jarvis"
-    parts = [
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"model_id\"\r\n\r\n"
-        f"{STT_MODEL}\r\n".encode(),
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
-        f"filename=\"turn.wav\"\r\nContent-Type: audio/wav\r\n\r\n".encode(),
-        wav, f"\r\n--{boundary}--\r\n".encode(),
-    ]
+    boundary = "----------jarvis" + uuid.uuid4().hex
+    def field(name: str, value: str) -> bytes:
+        return (f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}\r\n").encode()
+
+    body = b"".join([
+        field("model_id", STT_MODEL),
+        (f"--{boundary}\r\n"
+         'Content-Disposition: form-data; name="file"; filename="turn.wav"\r\n'
+         "Content-Type: audio/wav\r\n\r\n").encode(),
+        wav,
+        f"\r\n--{boundary}--\r\n".encode(),
+    ])
+
     req = urllib.request.Request(
-        f"{ELEVEN_BASE}/speech-to-text", data=b"".join(parts),
+        f"{ELEVEN_BASE}/speech-to-text", data=body,
         headers={"xi-api-key": api_key,
-                 "Content-Type": f"multipart/form-data; boundary={boundary}"},
+                 "Content-Type": f"multipart/form-data; boundary={boundary}",
+                 "Content-Length": str(len(body))},
         method="POST")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read()).get("text", "").strip()
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return json.loads(r.read()).get("text", "").strip()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:400]
+        raise VoiceUnavailable(
+            f"ElevenLabs refused the audio (HTTP {e.code}): {detail}"
+        ) from None
+    except urllib.error.URLError as e:
+        raise VoiceUnavailable(
+            f"could not reach ElevenLabs: {e.reason}. Check your connection."
+        ) from None
 
 
 def _wav_header(n: int) -> bytes:

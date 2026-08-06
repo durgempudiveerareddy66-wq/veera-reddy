@@ -259,8 +259,11 @@
                            (m.mode === 'ptt' ? ' (PRESS MIC OR SPACE)' : ' (SAY HEY JARVIS)');
                          break;
       case 'degraded':   $('caption').textContent = (m.why || '').toUpperCase(); break;
-      case 'failed':     $('caption').textContent = 'VOICE FAILED: ' + (m.error || '');
-                         setState('blocked'); break;
+      case 'failed':     $('caption').textContent = (m.error || 'FAILED');
+                         $('caption').style.whiteSpace = 'normal';
+                         setState('blocked');
+                         console.error('JARVIS voice failure:', m.error);
+                         break;
       case 'said':       $('caption').textContent = '\u201C' + m.text + '\u201D'; break;
       case 'error':      $('caption').textContent = 'ERROR: ' + m.error;
                          setState('blocked'); break;
