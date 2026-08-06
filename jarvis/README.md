@@ -11,7 +11,7 @@ machinery first and gives it hands afterwards.
 |------|------|-------|
 | 0 | Interview, `CLAUDE.md` | done — 1 of 14 answered, rest recorded `UNKNOWN` |
 | 1 | Action bus, policy engine, journal | **done, 59 tests passing** |
-| 2 | `files.py`, `apps.py` | not started |
+| 2 | `files.py`, `apps.py` | **done, 16 more tests passing** |
 | 3 | The HUD — reactor, action stack, telemetry, graph | not started |
 | 4 | Voice — wake word, Scribe, TTS, barge-in | not started |
 | 5 | `browser.py` | not started |
@@ -25,8 +25,10 @@ machinery first and gives it hands afterwards.
 Nothing to install — step 1 is stdlib Python only.
 
 ```bash
-python jarvis/prove.py                                   # watch it refuse things
-python -m unittest discover -s jarvis/tests -t jarvis -v # the 59 tests
+python jarvis/prove.py               # watch it refuse things
+python jarvis/run.py                 # the text box — type at the file surface
+python jarvis/tests/test_spine.py    # 59 tests, the spine
+python jarvis/tests/test_surfaces.py # 16 tests, real files on disk
 ```
 
 `prove.py` builds a throwaway machine under `/tmp`, proposes eighteen Actions

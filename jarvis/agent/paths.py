@@ -103,6 +103,12 @@ def _looks_windows_absolute(s: str) -> bool:
     return bool(_WINDOWS_ABS.match(os.path.expandvars(s)))
 
 
+def _is_absolute(s: str) -> bool:
+    """Absolute on either platform, plus ~ which expanduser will make absolute."""
+    e = os.path.expandvars(s)
+    return _looks_windows_absolute(e) or e.startswith(("/", "~"))
+
+
 def resolve(raw: str | os.PathLike[str]) -> Path:
     """Expand, absolutise and resolve a path without requiring it to exist.
 
@@ -201,7 +207,12 @@ class PathGuard:
                 # the real safe zone, so it is never treated as inside it.
                 return Zone.OUTSIDE, PureWindowsPath(raw_s), ""  # type: ignore[return-value]
 
-        p = resolve(raw)
+        # §6: "Creates land in the safe write zone unless I name a target." A bare
+        # "notes.md" therefore anchors to the safe zone, NOT to the process working
+        # directory. cwd is meaningless to someone talking to an agent — they have
+        # no idea what it is, and resolving against it silently puts files in
+        # whatever folder JARVIS happened to be started from.
+        p = resolve(raw_s if _is_absolute(raw_s) else str(self.safe_zone / raw_s))
         black, why = self.is_black(p)
         if black:
             return Zone.BLACK, p, why
