@@ -208,9 +208,36 @@ class Speaker:
         """Stop talking immediately. Bound to a global hotkey and the HUD control."""
         self._stop.set()
 
+    def resolve_voice(self) -> str:
+        """Pick a voice if none was configured.
+
+        Without this, an empty ELEVENLABS_VOICE_ID means JARVIS is simply silent
+        — it plans, it acts, and it never speaks, with nothing saying why. One
+        blank line in a config file should not be the difference between a voice
+        agent and a mute one, so it asks the account which voices exist and takes
+        the first.
+        """
+        if self.voice_id:
+            return self.voice_id
+        try:
+            req = urllib.request.Request(f"{ELEVEN_BASE}/voices",
+                                         headers={"xi-api-key": self.api_key})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                voices = json.loads(r.read()).get("voices", [])
+            if voices:
+                self.voice_id = voices[0]["voice_id"]
+                self.on_state(f"voice-auto:{voices[0].get('name', self.voice_id)}")
+                return self.voice_id
+        except Exception as e:                              # noqa: BLE001
+            self.on_state(f"voice-lookup-failed:{type(e).__name__}")
+        return ""
+
     def say(self, text: str) -> None:
-        if not self.api_key or not self.voice_id:
-            self.on_state("tts-unavailable")
+        if not self.api_key:
+            self.on_state("tts-unavailable: no ELEVENLABS_API_KEY")
+            return
+        if not self.resolve_voice():
+            self.on_state("tts-unavailable: no voices on this ElevenLabs account")
             return
         self._stop.clear()
         self.speaking.set()
