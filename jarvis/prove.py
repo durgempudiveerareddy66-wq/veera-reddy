@@ -30,6 +30,13 @@ USER = Provenance(Origin.USER)
 FROM_FILE = Provenance(Origin.FILE, r"Work\notes\overdue-invoice.md")
 FROM_WEB = Provenance(Origin.WEB, "https://supplier.example/portal")
 
+if sys.platform == "win32":
+    ESCAPE_LABEL = r"C:\Windows"
+    ESCAPE_TARGET = r"C:\Users\..\..\Windows\System32\drivers\etc\hosts"
+else:
+    ESCAPE_LABEL = "/etc"
+    ESCAPE_TARGET = "/tmp/../etc/hosts"
+
 
 def main() -> int:
     tmp = tempfile.TemporaryDirectory()
@@ -70,9 +77,11 @@ def main() -> int:
         ("read an SSH private key",
          ProposedAction("files.read", {"path": str(Path.home() / ".ssh" / "id_rsa")},
                         {"path": USER})),
-        ("escape the safe zone with .. into /etc",
-         ProposedAction("files.read", {"path": str(safe / ".." / ".." / ".." / "etc" / "hosts")},
-                        {"path": USER})),
+        # The escape target has to be a never-touch root on THIS host. On Windows
+        # that is C:\Windows; on Linux it is /etc. Hardcoding one makes the demo
+        # print GREEN on the other platform and look like a guardrail failing.
+        (f"escape the safe zone with .. into {ESCAPE_LABEL}",
+         ProposedAction("files.read", {"path": ESCAPE_TARGET}, {"path": USER})),
         ("escape the safe zone with .. then WRITE",
          ProposedAction("files.create", {"path": str(safe / ".." / "Elsewhere" / "x.md")},
                         {"path": USER})),
