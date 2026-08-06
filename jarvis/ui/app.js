@@ -310,12 +310,28 @@
     }
   });
 
-  fetch('/api/graph').then(function (r) { return r.json(); }).then(function (d) {
+  fetch('/api/graph').then(function (r) {
+    if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || r.status); });
+    return r.json();
+  }).then(function (d) {
     g.load(d);
     S.files = d.stats.files;
     $('g-nodes').textContent = d.stats.files;
     $('g-links').textContent = d.stats.links;
     $('t-files').textContent = d.stats.files;
+    if (d.stats.skipped) {
+      $('caption').textContent = 'INDEX SKIPPED ' + d.stats.skipped +
+        ' UNREADABLE FILE(S) — SEE THE SERVER CONSOLE';
+    }
+  }).catch(function (e) {
+    // Without this the counters just sat at their initial 0 and an index that
+    // had crashed looked exactly like a vault with nothing in it.
+    $('g-nodes').textContent = 'ERR';
+    $('g-links').textContent = 'ERR';
+    $('t-files').textContent = 'ERR';
+    $('g-nodes').style.color = 'var(--red)';
+    $('caption').textContent = 'VAULT INDEX FAILED: ' + e.message;
+    setState('blocked');
   });
 
   setInterval(function () { g.step(); g.draw(); }, FRAME_MS);

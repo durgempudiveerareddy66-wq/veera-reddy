@@ -75,42 +75,55 @@ def build(guard: PathGuard) -> dict[str, Any]:
     nodes: dict[str, Node] = {}
     by_stem: dict[str, str] = {}
 
+    skipped: list[str] = []
     for root in guard.index_roots:
         if not root.exists():
             continue
-        for p in sorted(root.rglob("*")):
-            if not p.is_file():
-                continue
-            if any(part in SKIP_DIRS for part in p.parts):
-                continue
-            if guard.is_black(p)[0]:
-                continue                    # never even name a credential file
-            if p.stat().st_size > MAX_BYTES:
-                continue
+        try:
+            candidates = sorted(root.rglob("*"))
+        except OSError as e:
+            skipped.append(f"{root}: {e}")
+            continue
+        for p in candidates:
+          # Per-file, because one unreadable file must not empty the whole index.
+          # A permission error, a reparse point, a path over Windows' 260-char
+          # limit — any of those used to abort the walk and return zero nodes,
+          # which looks identical to a vault with nothing in it.
+          try:
+              if not p.is_file():
+                  continue
+              if any(part in SKIP_DIRS for part in p.parts):
+                  continue
+              if guard.is_black(p)[0]:
+                  continue                    # never even name a credential file
+              if p.stat().st_size > MAX_BYTES:
+                  continue
 
-            nid = str(p)
-            if p.suffix.lower() not in TEXT_SUFFIXES:
-                # A non-text file is a real node with no readable content. It is
-                # marked unindexed rather than silently dropped or fake-parsed.
-                nodes[nid] = Node(nid, p.stem, str(p), type=p.suffix.lstrip(".") or "file",
-                                  unindexed=True)
-                by_stem.setdefault(_slug(p.stem), nid)
-                continue
+              nid = str(p)
+              if p.suffix.lower() not in TEXT_SUFFIXES:
+                  # A non-text file is a real node with no readable content. It is
+                  # marked unindexed rather than silently dropped or fake-parsed.
+                  nodes[nid] = Node(nid, p.stem, str(p), type=p.suffix.lstrip(".") or "file",
+                                    unindexed=True)
+                  by_stem.setdefault(_slug(p.stem), nid)
+                  continue
 
-            text = p.read_text(encoding="utf-8", errors="replace")
-            if len(text.strip()) < 20:
-                # §9.9: near-empty extraction is noise, not content.
-                nodes[nid] = Node(nid, p.stem, str(p), unindexed=True)
-                by_stem.setdefault(_slug(p.stem), nid)
-                continue
+              text = p.read_text(encoding="utf-8", errors="replace")
+              if len(text.strip()) < 20:
+                  # §9.9: near-empty extraction is noise, not content.
+                  nodes[nid] = Node(nid, p.stem, str(p), unindexed=True)
+                  by_stem.setdefault(_slug(p.stem), nid)
+                  continue
 
-            n = Node(nid, p.stem, str(p), type=_type_of(p, text))
-            for m in _WIKILINK.finditer(text):
-                n.links.add(_slug(m.group(1)))
-            for m in _MDLINK.finditer(text):
-                n.links.add(_slug(Path(m.group(1)).stem))
-            nodes[nid] = n
-            by_stem.setdefault(_slug(p.stem), nid)
+              n = Node(nid, p.stem, str(p), type=_type_of(p, text))
+              for m in _WIKILINK.finditer(text):
+                  n.links.add(_slug(m.group(1)))
+              for m in _MDLINK.finditer(text):
+                  n.links.add(_slug(Path(m.group(1)).stem))
+              nodes[nid] = n
+              by_stem.setdefault(_slug(p.stem), nid)
+          except OSError as e:
+              skipped.append(f"{p}: {type(e).__name__}")
 
     # Resolve link targets to node ids. A link to something that isn't in the
     # index is dropped rather than becoming a phantom node.
@@ -137,5 +150,7 @@ def build(guard: PathGuard) -> dict[str, Any]:
             "files": len(nodes),
             "links": len(edges),
             "unindexed": sum(1 for n in nodes.values() if n.unindexed),
+            "skipped": len(skipped),
         },
+        "skipped": skipped[:20],
     }

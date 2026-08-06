@@ -162,6 +162,22 @@ class Handler(BaseHTTPRequestHandler):
     # -- GET ---------------------------------------------------------------
 
     def do_GET(self) -> None:
+        try:
+            self._get()
+        except Exception as e:                              # noqa: BLE001
+            # Degrade loudly (§9.7). A traceback swallowed here shows up in the
+            # HUD as a counter that never moved, which is indistinguishable from
+            # an empty vault.
+            import traceback
+            msg = f"{type(e).__name__}: {e}"
+            HUB.emit("error", {"error": f"{self.path} — {msg}"})
+            try:
+                self._json({"error": msg, "where": self.path,
+                            "traceback": traceback.format_exc().splitlines()[-6:]}, 500)
+            except Exception:
+                pass
+
+    def _get(self) -> None:
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             return self._file(UI / "index.html")
