@@ -126,6 +126,8 @@ class Brain:
         self.ollama_url = ollama_url or os.environ.get("OLLAMA_URL", OLLAMA_DEFAULT)
         self.ollama_model = ollama_model or os.environ.get("OLLAMA_MODEL", "")
         self._post = transport or _post_json      # injectable, so tests need no network
+        self.profile = ""       # CLAUDE.md — trusted, loaded once at startup
+        self.memory_context = ""  # what JARVIS remembers, refreshed per turn
         self.history: list[dict[str, Any]] = []
         self.calls = 0
         self.in_tokens = 0
@@ -188,8 +190,12 @@ class Brain:
         self.history = self.history[-MAX_TURNS * 2:]
 
         contents = list(self.history)
-        if context:
-            contents.insert(0, {"role": "user", "parts": [{"text": context}]})
+        # Order matters: who Reddie is, then what JARVIS remembers, then any
+        # untrusted content for this turn. The profile goes first so the rules
+        # about UNKNOWN fields are in place before anything else is read.
+        for extra in (context, self.memory_context, self.profile):
+            if extra:
+                contents.insert(0, {"role": "user", "parts": [{"text": extra}]})
 
         body = {
             "systemInstruction": {"parts": [{"text": SYSTEM}]},

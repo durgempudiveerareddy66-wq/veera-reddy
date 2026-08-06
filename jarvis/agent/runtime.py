@@ -17,6 +17,7 @@ from typing import Any
 from .brain import Brain
 from .bus import ActionBus
 from .journal import Journal
+from .memory import Memory, load_profile
 from .paths import PathGuard, default_safe_zone, load_extra_never_touch
 from .policy import PolicyConfig, PolicyEngine, load_allowlist
 
@@ -53,6 +54,7 @@ class Runtime:
     journal: Journal
     bus: ActionBus
     brain: Brain
+    memory: Memory
     attached: tuple[str, ...]
     notes: tuple[str, ...]      # things Reddie should know — degrade loudly
 
@@ -156,7 +158,13 @@ def build(*, on_event=None) -> Runtime:
     c_ok, c_why = comms_surface.available()
     notes.append(f"comms surface: {c_why}")
 
+    memory = Memory(safe / "memory" / "facts.json")
     brain = Brain()
+    brain.profile = load_profile(ROOT / "CLAUDE.md")
+    brain.memory_context = memory.as_context()
+    if not brain.profile:
+        notes.append("CLAUDE.md not found — JARVIS knows nothing about you at all.")
+
     if not brain.api_key:
         notes.append(
             "no GEMINI_API_KEY — the planner is unavailable. Fixed command shapes "
@@ -168,4 +176,4 @@ def build(*, on_event=None) -> Runtime:
             "fallback, only the fixed command shapes."
         )
 
-    return Runtime(guard, policy, journal, bus, brain, tuple(attached), tuple(notes))
+    return Runtime(guard, policy, journal, bus, brain, memory, tuple(attached), tuple(notes))
