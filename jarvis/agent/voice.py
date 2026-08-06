@@ -306,16 +306,32 @@ def _wav_header(n: int) -> bytes:
 
 
 def available() -> tuple[bool, str]:
-    """For the telemetry strip. Degrade loudly, never silently."""
+    """Can voice run at all? Degrade loudly, never silently.
+
+    Only numpy and sounddevice are REQUIRED — they are the microphone itself.
+    openwakeword is optional: without it you press a button instead of saying
+    "Hey Jarvis", which is a smaller loss than having no voice.
+
+    This function used to demand all three, which switched voice off entirely
+    whenever the wake word failed to install — defeating the push-to-talk
+    fallback that exists precisely for that case. openwakeword's runtime lags
+    behind new Python releases, so that is the COMMON case, not an edge one.
+    """
     missing = []
-    for mod, why in (("sounddevice", "microphone"), ("numpy", "audio maths"),
-                     ("openwakeword", "wake word")):
+    for mod, why in (("sounddevice", "the microphone"), ("numpy", "audio maths")):
         try:
             __import__(mod)
         except ImportError:
             missing.append(f"{mod} ({why})")
     if missing:
-        return False, "not installed: " + ", ".join(missing) + " — run setup.ps1"
+        return False, ("voice needs " + " and ".join(missing) +
+                       " — run: pip install numpy sounddevice")
     if not os.environ.get("ELEVENLABS_API_KEY"):
         return False, "ELEVENLABS_API_KEY is not set in jarvis/.env"
-    return True, "ready"
+
+    try:
+        __import__("openwakeword")
+        return True, "ready — wake word available"
+    except ImportError:
+        return True, ("ready — PUSH TO TALK (openwakeword not installed, so no "
+                      "'Hey Jarvis'; press the mic button or the space bar)")

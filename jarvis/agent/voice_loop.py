@@ -119,7 +119,14 @@ class VoiceLoop:
             return
 
         if self.use_wake_word:
-            self._wake_model = self._load_wake_word()
+            try:
+                __import__("openwakeword")
+                self._wake_model = self._load_wake_word()
+            except ImportError:
+                self.mode = "ptt"
+                self.error = ("openwakeword is not installed — push-to-talk only. "
+                              "Press the mic button or the space bar.")
+                self.on_event("degraded", {"why": self.error})
         else:
             self.mode = "ptt"
 
