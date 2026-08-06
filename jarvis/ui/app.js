@@ -249,6 +249,19 @@
                          setState('blocked'); break;
       case 'done':       cardState(m.id, m.ok ? 'DONE' : 'FAILED', true); break;
       case 'rms':        S.rms = m.value; break;
+      case 'wake':       if (m.accepted) $('caption').textContent = 'WAKE WORD HEARD';
+                         else $('caption').textContent =
+                           'WAKE TRIGGER IGNORED (' + m.why + ', ' +
+                           (m.score || 0).toFixed(2) + ')';
+                         break;
+      case 'ready':      $('caption').textContent =
+                           'MICROPHONE READY — ' + m.mode.toUpperCase() +
+                           (m.mode === 'ptt' ? ' (PRESS MIC OR SPACE)' : ' (SAY HEY JARVIS)');
+                         break;
+      case 'degraded':   $('caption').textContent = (m.why || '').toUpperCase(); break;
+      case 'failed':     $('caption').textContent = 'VOICE FAILED: ' + (m.error || '');
+                         setState('blocked'); break;
+      case 'said':       $('caption').textContent = '\u201C' + m.text + '\u201D'; break;
       case 'error':      $('caption').textContent = 'ERROR: ' + m.error;
                          setState('blocked'); break;
     }
@@ -368,9 +381,30 @@
   };
   $('journal-btn').onclick = function () { $('cmd').value = 'journal'; send(); };
   $('brief-btn').onclick = function () { $('cmd').value = 'brief'; send(); };
+  /* Push-to-talk. The mic itself lives in Python — this only asks the server to
+     start a turn. If JARVIS is talking, the same button interrupts it, which is
+     what barge-in means. */
   $('mic-btn').onclick = function () {
-    $('caption').textContent = 'THE MICROPHONE ARRIVES IN STEP 4 — IT LIVES IN PYTHON, NOT THE BROWSER';
+    if (S.state === 'speaking') {
+      post('/api/bargein');
+      $('caption').textContent = 'STOPPED';
+      return;
+    }
+    post('/api/listen').then(function (r) {
+      $('caption').textContent = (r && r.ok) ? 'LISTENING — SPEAK NOW'
+        : ((r && r.message) || 'VOICE IS NOT RUNNING').toUpperCase();
+    });
   };
 
+  /* Space bar is push-to-talk too, as long as you are not typing in the box. */
+  document.addEventListener('keydown', function (e) {
+    if (e.code !== 'Space' || document.activeElement === $('cmd')) return;
+    if ($('overlay').hidden === false) return;
+    e.preventDefault();
+    $('mic-btn').click();
+  });
+
+  $('caption').textContent =
+    'TEXT AND VOICE ARE EQUAL — PRESS MIC OR SPACE TO TALK';
   $('cmd').focus();
 })();

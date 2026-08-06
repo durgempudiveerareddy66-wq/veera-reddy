@@ -30,7 +30,7 @@ from agent.runtime import build as build_runtime
 HERE = Path(__file__).resolve().parent
 UI = HERE / "ui"
 HOST, PORT = "127.0.0.1", 8765
-BUILD = "step6"        # printed at startup, so a stale process is obvious
+BUILD = "voice"        # printed at startup, so a stale process is obvious
 USER = Provenance(Origin.USER)
 
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",
@@ -72,6 +72,7 @@ class Hub:
 
 HUB = Hub()
 RT = None                       # the Runtime, built in main()
+VOICE = None                    # the VoiceLoop, if the microphone came up
 PENDING: dict[str, dict] = {}   # actions waiting on confirmation
 PENDING_PLAN: list = []         # the rest of a multi-step plan, shown up front
 
@@ -110,7 +111,11 @@ def health() -> dict:
     _v_label = "READY" if v_ok else v_why[:46]
     return {
         "brain": brain,
-        "stt": _v_label, "tts": _v_label, "wake": _v_label,
+        "stt": _v_label, "tts": _v_label,
+        "wake": (f"{VOICE.status()['mode'].upper()} — "
+                 f"{'RUNNING' if VOICE.status()['running'] else 'STOPPED'}")
+                if VOICE is not None else _v_label,
+        "voice": VOICE.status() if VOICE is not None else {"running": False},
         "dry_run": RT.policy.config.dry_run,
         "yolo": RT.policy.config.yolo,
         "safe_zone": str(g.safe_zone),
@@ -128,6 +133,77 @@ def health() -> dict:
         "notes": list(RT.notes),
         "state": HUB.state,
     }
+
+
+ASSENT = {"yes", "yeah", "yep", "ok", "okay", "go", "do it", "go ahead", "confirm",
+          "sure", "please do"}
+DECLINE = {"no", "nope", "cancel", "stop", "don't", "dont", "never mind"}
+
+
+def voice_turn(text: str) -> str:
+    """One spoken turn. Returns what JARVIS should say back.
+
+    Voice can release an AMBER action by saying yes — one word is enough, per §3.
+    It can never release a RED one: that needs a click or the code typed on the
+    HUD, and this function says so out loud rather than silently doing nothing.
+    """
+    line = text.strip()
+    low = line.lower().strip(" .!?")
+
+    # Answering a question JARVIS already asked.
+    if PENDING:
+        aid, rec = next(iter(PENDING.items()))
+        action = rec["action"]
+        if low in ASSENT:
+            if action.risk is Risk.RED:
+                return ("That one is red — I can't take a spoken yes for it. "
+                        f"The code is on screen: {rec['code']}. Type it, or click confirm.")
+            PENDING.pop(aid, None)
+            r = RT.bus.execute(action, transcript=rec["transcript"], confirmed_by="voice")
+            HUB.emit("done", {"id": aid, "ok": r.ok, "result": r.value})
+            HUB.set_state("idle")
+            return "Done." if r.ok else f"That failed: {r.message}"
+        if low in DECLINE:
+            PENDING.pop(aid, None)
+            RT.bus.execute(action, transcript=rec["transcript"], confirmed_by=None)
+            HUB.emit("cancelled", {"id": aid, "reason": "you said no"})
+            HUB.set_state("idle")
+            return "Cancelled."
+
+    HUB.emit("transcript", {"text": line})
+    HUB.set_state("thinking")
+    plan = RT.brain.plan(line)
+    HUB.emit("brain", {"source": plan.source, "degraded": plan.degraded})
+
+    if not plan.actions:
+        HUB.set_state("idle")
+        return plan.say or "I didn't get an action out of that."
+
+    action = RT.bus.propose(plan.actions[0])
+    HUB.emit("action", {"action": action.to_dict()})
+
+    if action.risk is Risk.BLACK:
+        RT.bus.execute(action, transcript=line)
+        HUB.emit("blocked", {"id": action.id, "reason": action.refusal_reason})
+        HUB.set_state("blocked")
+        return f"No. {action.refusal_reason}"
+
+    if action.risk is Risk.GREEN:
+        r = RT.bus.execute(action, transcript=line)
+        HUB.emit("done", {"id": action.id, "ok": r.ok, "result": r.value})
+        HUB.set_state("idle")
+        return (plan.say or "Done.") if r.ok else f"That failed: {r.message}"
+
+    code = action.id[:4].upper()
+    PENDING[action.id] = {"action": action, "transcript": line,
+                          "at": time.monotonic(), "code": code}
+    HUB.emit("confirm", {"action": action.to_dict(), "code": code,
+                         "needs": "code" if action.risk is Risk.RED else "yes"})
+    HUB.set_state("awaiting")
+    if action.risk is Risk.RED:
+        return (f"{action.preview} That's red, so I need the code {code} "
+                "typed on screen. I can't take a spoken yes for it.")
+    return f"{action.preview} Say yes to go ahead."
 
 
 def _apps_status() -> tuple[bool, str]:
@@ -238,6 +314,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._command(self._body())
             if path == "/api/confirm":
                 return self._confirm(self._body())
+            if path == "/api/listen":
+                if VOICE is None:
+                    return self._json({"ok": False,
+                                       "message": "voice is not running — "
+                                                  "install numpy and sounddevice"})
+                VOICE.push_to_talk()
+                return self._json({"ok": True, "message": "listening"})
+            if path == "/api/bargein":
+                if VOICE is not None:
+                    VOICE.barge_in()
+                return self._json({"ok": True})
             if path == "/api/undo":
                 HUB.set_state("thinking")
                 r = RT.bus.undo_last(confirmed_by="click")
@@ -361,6 +448,26 @@ def main() -> int:
     global RT
     RT = build_runtime(on_event=lambda kind, payload: HUB.emit(kind, payload))
     threading.Thread(target=_expire_pending, daemon=True).start()
+
+    # Voice starts itself if the hardware and packages are there. If they are
+    # not, the HUD says so and everything else carries on — voice is a surface,
+    # not a prerequisite.
+    global VOICE
+    v_ok, v_why = _voice_status()
+    if v_ok:
+        from agent.voice_loop import VoiceLoop
+        import os as _os
+        VOICE = VoiceLoop(
+            on_transcript=voice_turn,
+            on_event=lambda k, p: HUB.emit(k, p),
+            mic_name=_os.environ.get("JARVIS_MIC_NAME", ""),
+            api_key=_os.environ.get("ELEVENLABS_API_KEY", ""),
+            voice_id=_os.environ.get("ELEVENLABS_VOICE_ID", ""),
+            use_wake_word=_os.environ.get("JARVIS_WAKE_WORD", "1") == "1",
+        )
+        VOICE.start()
+    else:
+        RT.notes = RT.notes + (f"voice is off: {v_why}",)
 
     # Bind FIRST. Printing the banner before binding meant a second instance
     # printed a perfectly normal-looking startup and then died on "address
