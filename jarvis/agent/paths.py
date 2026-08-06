@@ -48,6 +48,21 @@ _WINDOWS_SYSTEM_ROOTS: tuple[str, ...] = (
     r"C:\Program Files",
     r"C:\Program Files (x86)",
     r"C:\ProgramData",
+    # 8.3 short names for the same directories. Windows still resolves these, so
+    # C:\PROGRA~1\App and C:\Program Files\App are one folder with two spellings —
+    # and a string comparison sees two different paths. Found on Reddie's machine,
+    # where a temp dir came back as C:\Users\VEERAR~1\... while every resolved
+    # preview said C:\Users\veera reddy\...
+    #
+    # On Windows the resolve()-then-compare pass below would catch these anyway.
+    # They are listed here so the *first* check catches them too, and so the rule
+    # holds on a non-Windows host, where resolve() cannot expand them at all.
+    # ~1..~3 because which suffix maps to which directory depends on creation
+    # order, and all three of these live at the root of C:.
+    r"C:\PROGRA~1",
+    r"C:\PROGRA~2",
+    r"C:\PROGRA~3",
+    r"C:\DOCUME~1",          # legacy Documents and Settings junction
 )
 
 # Paths relative to the user's home that hold credentials or live sessions.

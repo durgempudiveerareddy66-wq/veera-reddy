@@ -139,6 +139,15 @@ class TestBlackPaths(Base):
             with self.subTest(p=p):
                 self.assertTrue(is_black_windows_path(p), p)
 
+    def test_short_83_names_are_black_too(self):
+        # Found on Windows: C:\Users\VEERAR~1\... and C:\Users\veera reddy\...
+        # are the same folder. A string comparison sees two paths; an attacker
+        # sees one bypass.
+        for p in (r"C:\PROGRA~1\App\x.exe", r"C:\PROGRA~2\App",
+                  r"c:\progra~1\app", r"C:\DOCUME~1\user"):
+            with self.subTest(p=p):
+                self.assertTrue(is_black_windows_path(p), p)
+
     def test_ordinary_windows_paths_are_not_black(self):
         for p in (r"C:\Users\Reddie\JarvisWorkspace\a.md", r"D:\Work\invoice.pdf",
                   r"C:\WindowsApps-Notes\mine.md"):
