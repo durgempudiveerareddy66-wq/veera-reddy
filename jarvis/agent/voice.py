@@ -44,6 +44,11 @@ WAKE_THRESHOLD = 0.60           # §9.3 — below this a trigger is ignored
 WAKE_COOLDOWN_S = 1.5           # stops one utterance firing the wake word twice
 
 ELEVEN_BASE = "https://api.elevenlabs.io/v1"
+SARVAM_BASE = "https://api.sarvam.ai"
+SARVAM_STT_MODEL = "saarika:v2.5"
+SARVAM_TTS_MODEL = "bulbul:v2"
+SARVAM_LANG = "en-IN"           # Indian English; "unknown" auto-detects
+SARVAM_SPEAKER = "anushka"
 STT_MODEL = "scribe_v1"
 TTS_MODEL = "eleven_flash_v2_5"
 
@@ -235,7 +240,61 @@ class Speaker:
             self.on_state(f"voice-lookup-failed:{type(e).__name__}")
         return ""
 
+    def _say_sarvam(self, text: str) -> None:
+        """Sarvam Bulbul. Returns base64 WAV chunks rather than a byte stream."""
+        import base64
+        import numpy as np
+        import sounddevice as sd
+
+        key = os.environ.get("SARVAM_API_KEY", "").strip()
+        body = json.dumps({
+            "text": text[:1500],
+            "target_language_code": os.environ.get("SARVAM_LANGUAGE", SARVAM_LANG),
+            "speaker": os.environ.get("SARVAM_SPEAKER", SARVAM_SPEAKER),
+            "model": SARVAM_TTS_MODEL,
+        }).encode()
+        req = urllib.request.Request(
+            f"{SARVAM_BASE}/text-to-speech", data=body,
+            headers={"api-subscription-key": key,
+                     "Content-Type": "application/json"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=45) as r:
+                data = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:300]
+            self.on_state(f"tts-failed: Sarvam HTTP {e.code}: {detail}")
+            return
+        except urllib.error.URLError as e:
+            self.on_state(f"tts-failed: could not reach Sarvam: {e.reason}")
+            return
+
+        clips = data.get("audios") or []
+        if not clips:
+            self.on_state(f"tts-failed: Sarvam returned no audio: {str(data)[:200]}")
+            return
+        for clip in clips:
+            if self._stop.is_set():
+                break
+            raw = base64.b64decode(clip)
+            # Sarvam returns a full WAV; skip the 44-byte header to get PCM.
+            pcm = np.frombuffer(raw[44:], dtype=np.int16)
+            sd.play(pcm, samplerate=22050)
+            sd.wait()
+
     def say(self, text: str) -> None:
+        if provider() == "sarvam":
+            self._stop.clear()
+            self.speaking.set()
+            self.on_state("speaking")
+            try:
+                self._say_sarvam(text)
+            finally:
+                self.speaking.clear()
+                self._stop.clear()
+                self.on_state("idle")
+            return
+
         if not self.api_key:
             self.on_state("tts-unavailable: no ELEVENLABS_API_KEY")
             return
@@ -272,6 +331,82 @@ class Speaker:
                 out.write(np.frombuffer(chunk, dtype=np.int16))
 
 
+def provider() -> str:
+    """Which speech provider to use, decided by which key is present.
+
+    Reddie has a Sarvam key, not an ElevenLabs one. Sarvam's models are built for
+    Indian languages and Indian English, so for him this is likely the better
+    choice rather than a consolation prize. ElevenLabs stays supported; whichever
+    key exists wins, and ElevenLabs wins if somehow both are set.
+    """
+    if os.environ.get("ELEVENLABS_API_KEY", "").strip().startswith("sk_"):
+        return "elevenlabs"
+    if os.environ.get("SARVAM_API_KEY", "").strip():
+        return "sarvam"
+    return "none"
+
+
+def _multipart(fields: dict[str, str], filename: str, blob: bytes,
+               content_type: str = "audio/wav") -> tuple[bytes, str]:
+    """Build a multipart body with a boundary that cannot collide with the blob."""
+    boundary = "----------jarvis" + uuid.uuid4().hex
+    parts = []
+    for name, value in fields.items():
+        parts.append((f"--{boundary}\r\n"
+                      f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                      f"{value}\r\n").encode())
+    parts.append((f"--{boundary}\r\n"
+                  f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+                  f"Content-Type: {content_type}\r\n\r\n").encode())
+    parts.append(blob)
+    parts.append(f"\r\n--{boundary}--\r\n".encode())
+    return b"".join(parts), boundary
+
+
+def _post_multipart(url: str, body: bytes, boundary: str, headers: dict,
+                    who: str) -> dict:
+    req = urllib.request.Request(
+        url, data=body,
+        headers={**headers,
+                 "Content-Type": f"multipart/form-data; boundary={boundary}",
+                 "Content-Length": str(len(body))},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:400]
+        raise VoiceUnavailable(f"{who} refused the audio (HTTP {e.code}): {detail}") from None
+    except urllib.error.URLError as e:
+        raise VoiceUnavailable(f"could not reach {who}: {e.reason}") from None
+
+
+def _wav_from(frames: list) -> bytes:
+    import numpy as np
+    audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.float32)
+    seconds = len(audio) / SAMPLE_RATE
+    if seconds < MIN_UTTERANCE_S:
+        raise VoiceUnavailable(
+            f"only {seconds:.2f}s of audio captured — hold the mic a moment "
+            "longer, or speak a little louder")
+    pcm = (np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes()
+    return _wav_header(len(pcm)) + pcm
+
+
+def transcribe_sarvam(frames: list, api_key: str = "") -> str:
+    """Sarvam Saarika. Built for Indian languages and Indian English."""
+    api_key = api_key or os.environ.get("SARVAM_API_KEY", "").strip()
+    if not api_key:
+        raise VoiceUnavailable("SARVAM_API_KEY is not set — check jarvis/.env")
+    body, boundary = _multipart(
+        {"model": SARVAM_STT_MODEL,
+         "language_code": os.environ.get("SARVAM_LANGUAGE", SARVAM_LANG)},
+        "turn.wav", _wav_from(frames))
+    data = _post_multipart(f"{SARVAM_BASE}/speech-to-text", body, boundary,
+                           {"api-subscription-key": api_key}, "Sarvam")
+    return (data.get("transcript") or data.get("text") or "").strip()
+
+
 def transcribe(frames: list, api_key: str = "") -> str:
     """ElevenLabs Scribe. Called only after a turn has been captured.
 
@@ -283,9 +418,13 @@ def transcribe(frames: list, api_key: str = "") -> str:
     """
     import numpy as np
 
+    if provider() == "sarvam":
+        return transcribe_sarvam(frames)
+
     api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "")
     if not api_key:
-        raise VoiceUnavailable("ELEVENLABS_API_KEY is not set — check jarvis/.env")
+        raise VoiceUnavailable("no speech key set — add SARVAM_API_KEY or "
+                               "ELEVENLABS_API_KEY to jarvis/.env")
 
     audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.float32)
     seconds = len(audio) / SAMPLE_RATE
@@ -363,9 +502,21 @@ def available() -> tuple[bool, str]:
     if missing:
         return False, ("voice needs " + " and ".join(missing) +
                        " — run: pip install numpy sounddevice")
+    who = provider()
+    if who == "sarvam":
+        try:
+            __import__("openwakeword")
+            return True, "ready — Sarvam (Indian English), wake word available"
+        except ImportError:
+            return True, ("ready — Sarvam (Indian English), PUSH TO TALK "
+                          "(press the mic button or the space bar)")
+
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    if not key and not os.environ.get("SARVAM_API_KEY", "").strip():
+        return False, ("no speech key set — add SARVAM_API_KEY (Indian English) "
+                       "or ELEVENLABS_API_KEY to jarvis/.env")
     if not key:
-        return False, "ELEVENLABS_API_KEY is not set in jarvis/.env"
+        return False, "SARVAM_API_KEY is set but empty after trimming"
     if not key.startswith("sk_"):
         # Checked at STARTUP, not after a failed recording. ElevenLabs retired
         # the old 64-hex key format; the new ones start sk_. Without this check
