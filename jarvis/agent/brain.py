@@ -42,6 +42,14 @@ GROQ_BASE = "https://api.groq.com/openai/v1"
 # the build spec originally described for Grok. No OpenAI SDK is imported and
 # OPENAI_API_KEY is never read.
 GROQ_SKIP = ("whisper", "tts", "guard", "vision", "embed")
+
+# Cloudflare sits in front of Groq and blocks requests on browser signature.
+# urllib announces itself as "Python-urllib/3.13", which Cloudflare rejects with
+# HTTP 403 error code 1010 — a fingerprint block, NOT an invalid key, and the
+# distinction is invisible unless you know that code. A real User-Agent gets
+# through. This is not evasion of a rate limit or an auth check; it is
+# identifying the client honestly to a CDN that refuses unlabelled ones.
+USER_AGENT = "JARVIS/3.0 (+https://github.com/durgempudiveerareddy66-wq/veera-reddy)"
 OLLAMA_DEFAULT = "http://localhost:11434"
 TIMEOUT_S = 30
 MAX_TURNS = 10          # §4: keep the last ~10 turns plus the current plan
@@ -157,12 +165,20 @@ class Brain:
         """Ask Groq what it serves, rather than hardcoding a name that may be gone."""
         req = urllib.request.Request(
             f"{GROQ_BASE}/models",
-            headers={"Authorization": f"Bearer {self.groq_key}"})
+            headers={"Authorization": f"Bearer {self.groq_key}",
+                     "User-Agent": USER_AGENT,
+                     "Accept": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
                 data = json.loads(r.read())
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace")[:300]
+            if "1010" in detail or "1020" in detail:
+                raise RuntimeError(
+                    f"Cloudflare blocked the request (HTTP {e.code}, {detail.strip()}). "
+                    "This is a client-fingerprint block in front of Groq, not a bad "
+                    "key — the key was never checked."
+                ) from None
             raise RuntimeError(f"Groq rejected the key (HTTP {e.code}): {detail}") from None
         return [m["id"] for m in data.get("data", [])
                 if not any(x in m["id"].lower() for x in GROQ_SKIP)]
@@ -315,7 +331,9 @@ class Brain:
             "tool_choice": "auto",
         }
         data = self._post(f"{GROQ_BASE}/chat/completions", body,
-                          {"Authorization": f"Bearer {self.groq_key}"})
+                          {"Authorization": f"Bearer {self.groq_key}",
+                           "User-Agent": USER_AGENT,
+                           "Accept": "application/json"})
         self.calls += 1
         usage = data.get("usage", {})
         self.in_tokens += usage.get("prompt_tokens", 0)
@@ -410,7 +428,7 @@ def _fallback(transcript: str, error: str) -> Plan:
 
 def _post_json(url: str, body: dict, headers: dict) -> dict:
     data = json.dumps(body).encode()
-    hdrs = {"Content-Type": "application/json", **headers}
+    hdrs = {"Content-Type": "application/json", "User-Agent": USER_AGENT, **headers}
     req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
