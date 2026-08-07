@@ -165,11 +165,17 @@ def build(*, on_event=None) -> Runtime:
     if not brain.profile:
         notes.append("CLAUDE.md not found — JARVIS knows nothing about you at all.")
 
-    if not brain.api_key:
+    if brain.which == "none":
         notes.append(
-            "no GEMINI_API_KEY — the planner is unavailable. Fixed command shapes "
-            "still work and everything else gets an honest refusal."
+            "no brain key — set GROQ_API_KEY or GEMINI_API_KEY in .env. Fixed "
+            "command shapes still work; everything else gets an honest refusal."
         )
+    elif brain.which == "groq":
+        try:
+            picked = brain.pick_groq_model()
+            notes.append(f"brain is Groq, model {picked}.")
+        except Exception as e:                                  # noqa: BLE001
+            notes.append(f"GROQ_API_KEY is set but Groq rejected it: {e}")
     elif not brain.ollama_model:
         notes.append(
             "no OLLAMA_MODEL set — if Gemini is unreachable there is no local "

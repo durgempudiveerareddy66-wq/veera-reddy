@@ -101,8 +101,10 @@ def health() -> dict:
     g = RT.guard
     stats = RT.journal.stats()
     bs = RT.brain.status()
-    brain = f"gemini:{bs['model']}" if bs["gemini_key"] else (
-        f"ollama:{bs['ollama_model']}" if bs["ollama_model"] else "none")
+    brain = {"groq": f"groq:{bs.get('groq_model') or '?'}",
+             "gemini": f"gemini:{bs['model']}"}.get(
+                 bs.get("which"),
+                 f"ollama:{bs['ollama_model']}" if bs["ollama_model"] else "none")
     apps_ok, apps_why = _apps_status()
     v_ok, v_why = _voice_status()
     from agent.surfaces import browser as _b

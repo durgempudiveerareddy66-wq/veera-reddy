@@ -36,6 +36,12 @@ from . import registry
 from .actions import Origin, ProposedAction, Provenance
 
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+GROQ_BASE = "https://api.groq.com/openai/v1"
+# Groq is not OpenAI — different company, different models, its own inference
+# hardware. It merely speaks the same request format, which is also the format
+# the build spec originally described for Grok. No OpenAI SDK is imported and
+# OPENAI_API_KEY is never read.
+GROQ_SKIP = ("whisper", "tts", "guard", "vision", "embed")
 OLLAMA_DEFAULT = "http://localhost:11434"
 TIMEOUT_S = 30
 MAX_TURNS = 10          # §4: keep the last ~10 turns plus the current plan
@@ -121,6 +127,8 @@ class Brain:
     def __init__(self, *, api_key: str = "", model: str = "",
                  ollama_url: str = "", ollama_model: str = "",
                  transport=None):
+        self.groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+        self.groq_model = os.environ.get("GROQ_MODEL", "").strip()
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self.model = model or os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
         self.ollama_url = ollama_url or os.environ.get("OLLAMA_URL", OLLAMA_DEFAULT)
@@ -136,8 +144,49 @@ class Brain:
 
     # -- status, for the telemetry strip -----------------------------------
 
+    @property
+    def which(self) -> str:
+        """Groq wins if its key is set — Reddie chose it explicitly."""
+        if self.groq_key:
+            return "groq"
+        if self.api_key:
+            return "gemini"
+        return "none"
+
+    def groq_models(self) -> list[str]:
+        """Ask Groq what it serves, rather than hardcoding a name that may be gone."""
+        req = urllib.request.Request(
+            f"{GROQ_BASE}/models",
+            headers={"Authorization": f"Bearer {self.groq_key}"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:300]
+            raise RuntimeError(f"Groq rejected the key (HTTP {e.code}): {detail}") from None
+        return [m["id"] for m in data.get("data", [])
+                if not any(x in m["id"].lower() for x in GROQ_SKIP)]
+
+    def pick_groq_model(self) -> str:
+        """Resolve a model once, at startup, and say which one was chosen."""
+        if self.groq_model:
+            return self.groq_model
+        models = self.groq_models()
+        if not models:
+            raise RuntimeError("Groq returned no usable chat models")
+        # Prefer a larger versatile model for tool-calling if one is offered.
+        for want in ("llama-3.3-70b-versatile", "llama-3.1-70b-versatile"):
+            if want in models:
+                self.groq_model = want
+                return want
+        self.groq_model = models[0]
+        return self.groq_model
+
     def status(self) -> dict[str, Any]:
         return {
+            "which": self.which,
+            "groq_key": bool(self.groq_key),
+            "groq_model": self.groq_model,
             "gemini_key": bool(self.api_key),
             "model": self.model if self.api_key else "",
             "ollama_model": self.ollama_model,
@@ -167,6 +216,16 @@ class Brain:
 
     def plan(self, transcript: str, *, context: str = "") -> Plan:
         """Turn a transcript into Actions. Never raises — it degrades and says so."""
+        if self.groq_key:
+            for attempt in (1, 2):
+                try:
+                    return self._groq(transcript, context)
+                except Exception as e:                          # noqa: BLE001
+                    self.last_error = f"{type(e).__name__}: {e}"
+                    if attempt == 2:
+                        break
+                    time.sleep(0.4)
+
         if self.api_key:
             for attempt in (1, 2):        # §4: fail over after two failures
                 try:
@@ -234,6 +293,55 @@ class Brain:
             self.history.append({"role": "model", "parts": parts})
         return Plan(actions=actions, say=" ".join(said).strip(),
                     source="gemini", model=self.model)
+
+    def _groq(self, transcript: str, context: str) -> Plan:
+        """Groq, OpenAI-compatible chat completions with tool calling."""
+        model = self.pick_groq_model()
+        msgs = [{"role": "system", "content": SYSTEM}]
+        for extra in (self.profile, self.memory_context, context):
+            if extra:
+                msgs.append({"role": "system", "content": extra})
+        msgs.extend(self.history[-MAX_TURNS * 2:])
+        msgs.append({"role": "user", "content": transcript})
+
+        body = {
+            "model": model,
+            "messages": msgs,
+            "tools": [{"type": "function",
+                       "function": {"name": d["name"],
+                                    "description": d["description"],
+                                    "parameters": d["parameters"]}}
+                      for d in _tool_declarations()],
+            "tool_choice": "auto",
+        }
+        data = self._post(f"{GROQ_BASE}/chat/completions", body,
+                          {"Authorization": f"Bearer {self.groq_key}"})
+        self.calls += 1
+        usage = data.get("usage", {})
+        self.in_tokens += usage.get("prompt_tokens", 0)
+        self.out_tokens += usage.get("completion_tokens", 0)
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"Groq returned no choices: {json.dumps(data)[:200]}")
+        msg = choices[0].get("message", {}) or {}
+
+        actions: list[ProposedAction] = []
+        for call in msg.get("tool_calls") or []:
+            fn = call.get("function", {})
+            verb = str(fn.get("name", "")).replace("__", ".")
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    args = {}
+            actions.append(ProposedAction(verb, dict(args),
+                                          {k: MODEL_SAID for k in args}))
+
+        self.history.append({"role": "user", "content": transcript})
+        return Plan(actions=actions, say=(msg.get("content") or "").strip(),
+                    source="groq", model=model)
 
     def _ollama(self, transcript: str, context: str) -> Plan:
         body = {
